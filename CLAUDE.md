@@ -37,20 +37,10 @@ say what they are for.
 ## Things this stack keeps getting wrong
 
 Carried forward from previous weeks --- general lessons about this template's
-tooling, not tied to any one prototype's content:
+tooling, not tied to any one prototype's content. (This template no longer
+ships stylelint/oxlint --- `pnpm check` is just typecheck, build, and vitest ---
+so the old lint-specific notes were dropped along with it.)
 
-- **stylelint's `selector-class-pattern` is kebab-case, so BEM `__`/`--` fails.**
-  Rename classes to fit the rule; don't loosen the config to fit the names.
-- `stylelint-config-standard` wants range syntax in media queries
-  (`@media (width < 34rem)`, not `min-width`/`max-width`), modern colour
-  notation with percentage alpha (`rgb(255 255 255 / 12%)`), and an empty line
-  before every comment inside a block.
-- **`alpha-value-notation` wants the opposite notation for a bare `opacity`:** a
-  number (`opacity: 0.7`), not a percentage --- even though the same config
-  demands `%` for the alpha channel *inside* a colour. `keyframe-selector-notation`
-  wants `0%`/`100%` rather than `from`/`to` in any `@keyframes` block that also
-  uses a percentage stop. Both are notation-only, so `pnpm exec stylelint --fix`
-  is the right tool --- read the diff to confirm it changed nothing but notation.
 - **axe reports contrast over a gradient as "incomplete", not "pass".** Don't
   read a low/zero violation count as real coverage; measure the rendered pixel
   directly when the background isn't flat.
