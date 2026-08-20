@@ -1,9 +1,22 @@
+:root {
+  --ink: #f4f1ec;
+  --ink-dim: #b9b3a8;
+  --void: #17151c;
+  --panel: #221f29;
+  --focus: #ffd479;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  padding: 2rem;
+  padding: 2rem 1.25rem 3rem;
   font-family: system-ui, sans-serif;
   line-height: 1.6;
-  color: #1a1a1a;
+  color: var(--ink);
+  background: var(--void);
 }
 
 main {
@@ -12,5 +25,132 @@ main {
 }
 
 a {
-  color: #0b5fff;
+  color: var(--focus);
+}
+
+h1 {
+  margin-bottom: 0.25rem;
+}
+
+[data-start] {
+  color: var(--ink-dim);
+  margin-top: 0;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 2rem 0;
+}
+
+.pad {
+  flex: 1 1 4.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.5rem;
+  border: 2px solid var(--accent, var(--panel));
+  border-radius: 0.75rem;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pad-key {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.pad-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.pad.is-active {
+  background: var(--accent, var(--focus));
+  color: var(--void);
+  border-color: var(--accent, var(--focus));
+}
+
+.pad.is-active .pad-key,
+.pad.is-active .pad-name {
+  color: var(--void);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pad {
+    transition:
+      transform 100ms ease,
+      background 100ms ease;
+  }
+
+  .pad.is-active {
+    transform: translateY(2px) scale(0.97);
+  }
+}
+
+.pad[data-chord="C"] {
+  --accent: #ff8c5a;
+}
+
+.pad[data-chord="Dm"] {
+  --accent: #6fb3ff;
+}
+
+.pad[data-chord="Em"] {
+  --accent: #7fd0a0;
+}
+
+.pad[data-chord="F"] {
+  --accent: #ffd479;
+}
+
+.pad[data-chord="G"] {
+  --accent: #ff7a95;
+}
+
+.pad[data-chord="Am"] {
+  --accent: #b79bff;
+}
+
+.pad[data-chord="Bdim"] {
+  --accent: #8f8a99;
+}
+
+.brightness {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brightness label {
+  color: var(--ink-dim);
+}
+
+.brightness input[type="range"] {
+  flex: 1 1 auto;
+  accent-color: var(--focus);
+}
+
+@media (width < 34rem) {
+  .pads {
+    gap: 0.5rem;
+  }
+
+  .pad {
+    flex: 1 1 4rem;
+    padding: 0.75rem 0.25rem;
+  }
 }

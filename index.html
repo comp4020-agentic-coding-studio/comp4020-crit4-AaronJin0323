@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <title>Chord Keys</title>
     <meta
       name="description"
-      content="Replace this with one sentence saying what this page is. A search result and a link preview both show it."
+      content="A seven-pad chord keyboard you play with your mouse, touch, or the A S D F G H J keys — no wrong note."
     />
 
     <!--
@@ -27,11 +27,46 @@
       </nav>
     </header>
     <main>
-      <h1>COMP4020 prototype</h1>
-      <p data-testid="intro">
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
+      <h1>Chord Keys</h1>
+      <p data-start>
+        Press a key (A S D F G H J), or tap a pad, to hear your first chord.
       </p>
+
+      <div class="pads" role="group" aria-label="Chords">
+        <button type="button" class="pad" data-chord="C" data-key="a" aria-pressed="false">
+          <span class="pad-key">A</span>
+          <span class="pad-name">C</span>
+        </button>
+        <button type="button" class="pad" data-chord="Dm" data-key="s" aria-pressed="false">
+          <span class="pad-key">S</span>
+          <span class="pad-name">Dm</span>
+        </button>
+        <button type="button" class="pad" data-chord="Em" data-key="d" aria-pressed="false">
+          <span class="pad-key">D</span>
+          <span class="pad-name">Em</span>
+        </button>
+        <button type="button" class="pad" data-chord="F" data-key="f" aria-pressed="false">
+          <span class="pad-key">F</span>
+          <span class="pad-name">F</span>
+        </button>
+        <button type="button" class="pad" data-chord="G" data-key="g" aria-pressed="false">
+          <span class="pad-key">G</span>
+          <span class="pad-name">G</span>
+        </button>
+        <button type="button" class="pad" data-chord="Am" data-key="h" aria-pressed="false">
+          <span class="pad-key">H</span>
+          <span class="pad-name">Am</span>
+        </button>
+        <button type="button" class="pad" data-chord="Bdim" data-key="j" aria-pressed="false">
+          <span class="pad-key">J</span>
+          <span class="pad-name">B°</span>
+        </button>
+      </div>
+
+      <div class="brightness">
+        <label for="brightness">Brightness</label>
+        <input type="range" id="brightness" min="0" max="100" value="55" />
+      </div>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
