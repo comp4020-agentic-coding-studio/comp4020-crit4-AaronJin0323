@@ -1,8 +1,12 @@
 // A seven-pad chord keyboard. Each pad is one diatonic triad of C major, so
 // any combination a player presses stays in key --- that's what "no wrong
 // note" means here, not just a claim. A shared low-pass filter, driven by
-// the brightness slider, is the one continuous expressive control: same
-// chord, different tone depending on where you leave it.
+// the brightness slider, is one continuous expressive control (the
+// instrument's overall tone); how and where you press a pad is the other
+// --- press position sets that note's loudness, attack, and how fast it
+// arpeggiates, so the same chord sounds different depending on how you play
+// it, and dragging across pads strums up a ringing cluster instead of
+// firing one chord at a time.
 
 type ChordId = "C" | "Dm" | "Em" | "F" | "G" | "Am" | "Bdim";
 
@@ -30,6 +34,11 @@ function cutoffFor(sliderValue: number): number {
   const max = 8000;
   return min * (max / min) ** (sliderValue / 100);
 }
+
+// Keyboard has no notion of "where" a key was pressed, so it always plays
+// at this fixed, medium velocity. Pointer/touch is the primary expressive
+// surface; keyboard is a consistent fallback, not a degraded one.
+const KEYBOARD_VELOCITY = 0.55;
 
 const pads = Array.from(document.querySelectorAll<HTMLButtonElement>(".pad"));
 const padByChord = new Map(pads.map((pad) => [pad.dataset.chord as ChordId, pad]));
@@ -65,9 +74,16 @@ brightness?.addEventListener("input", () => {
   );
 });
 
+// A held chord is a drone (all three notes always audible, quietly) with a
+// rotating spotlight (one note at a time boosted louder). That's the
+// "hold-to-arpeggiate" texture: the harmony is always fully present, but
+// it's alive rather than a static block chord.
 interface Voice {
   oscillators: OscillatorNode[];
   gains: GainNode[];
+  droneLevel: number;
+  spotlightLevel: number;
+  arpeggioTimer: number;
 }
 
 const activeVoices = new Map<ChordId, Voice>();
@@ -76,14 +92,17 @@ const activeVoices = new Map<ChordId, Voice>();
 // held doesn't cut the chord early.
 const activeSources = new Map<ChordId, Set<string>>();
 
-function setPadActive(id: ChordId, active: boolean): void {
+function setPadActive(id: ChordId, active: boolean, velocity?: number): void {
   const pad = padByChord.get(id);
   if (!pad) return;
   pad.setAttribute("aria-pressed", String(active));
   pad.classList.toggle("is-active", active);
+  if (active && velocity !== undefined) {
+    pad.style.setProperty("--velocity", String(velocity));
+  }
 }
 
-function startChord(id: ChordId, source: string): void {
+function startChord(id: ChordId, source: string, velocity: number): void {
   const sources = activeSources.get(id) ?? new Set<string>();
   activeSources.set(id, sources);
   if (sources.has(source)) return;
@@ -92,6 +111,13 @@ function startChord(id: ChordId, source: string): void {
 
   const { context, filter } = ensureAudio();
   const now = context.currentTime;
+  // Harder press (velocity closer to 1): louder, snappier attack, faster
+  // arpeggio. Softer press: quieter, gentler attack, slower arpeggio.
+  const droneLevel = 0.05 + velocity * 0.05;
+  const spotlightLevel = 0.14 + velocity * 0.14;
+  const attack = 0.05 - velocity * 0.035;
+  const tickMs = 260 - velocity * 180;
+
   const oscillators: OscillatorNode[] = [];
   const gains: GainNode[] = [];
 
@@ -102,7 +128,7 @@ function startChord(id: ChordId, source: string): void {
     osc.detune.value = (i - 1) * 4; // slight spread across the triad, for warmth
     const gain = context.createGain();
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.18, now + 0.015);
+    gain.gain.linearRampToValueAtTime(droneLevel, now + attack);
     osc.connect(gain);
     gain.connect(filter);
     osc.start();
@@ -110,8 +136,23 @@ function startChord(id: ChordId, source: string): void {
     gains.push(gain);
   });
 
-  activeVoices.set(id, { oscillators, gains });
-  setPadActive(id, true);
+  let step = 0;
+  const tick = (): void => {
+    if (!audioContext) return;
+    const t = audioContext.currentTime;
+    const spotlightIndex = step % gains.length;
+    gains.forEach((gain, i) => {
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setValueAtTime(gain.gain.value, t);
+      gain.gain.linearRampToValueAtTime(i === spotlightIndex ? spotlightLevel : droneLevel, t + 0.04);
+    });
+    step++;
+  };
+  tick(); // light the first note immediately, don't wait a full tick
+  const arpeggioTimer = window.setInterval(tick, tickMs);
+
+  activeVoices.set(id, { oscillators, gains, droneLevel, spotlightLevel, arpeggioTimer });
+  setPadActive(id, true, velocity);
 }
 
 function stopChord(id: ChordId, source: string): void {
@@ -123,6 +164,7 @@ function stopChord(id: ChordId, source: string): void {
   const voice = activeVoices.get(id);
   if (!voice || !audioContext) return;
   activeVoices.delete(id);
+  window.clearInterval(voice.arpeggioTimer);
 
   const now = audioContext.currentTime;
   const release = 0.15;
@@ -139,26 +181,54 @@ function stopChord(id: ChordId, source: string): void {
   setPadActive(id, false);
 }
 
-// Pointer (mouse or touch): tracked per pointerId so multiple fingers can
-// each hold their own chord, and so a chord can't stick on if the pointer
-// drifts off the pad before release --- release is handled on `window`, not
-// the pad itself.
-const pointerChords = new Map<number, ChordId>();
+// How hard/where a pad was pressed: vertical position within the pad,
+// bottom = hardest. pointer.pressure is a constant 0.5 for mouse and most
+// touchscreens, so it isn't a usable signal --- position is, and works the
+// same way across mouse, trackpad, and touch.
+function velocityFromEvent(event: PointerEvent, pad: HTMLElement): number {
+  const rect = pad.getBoundingClientRect();
+  const fraction = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+  const clamped = Math.min(1, Math.max(0, fraction));
+  return 0.25 + clamped * 0.75;
+}
+
+// Pointer (mouse or touch): tracked per pointerId as the *set* of chords
+// that pointer currently has sounding. A plain tap holds one chord, same as
+// before. Dragging across pads adds each newly-entered pad to the set ---
+// a strum builds a ringing cluster rather than swapping one chord for
+// another --- and releasing the pointer (anywhere, via `window`, not the
+// pad) tears down everything that pointer built up, so a drag off the row
+// never leaves a chord stuck on.
+const pointerPads = new Map<number, Set<ChordId>>();
 
 for (const pad of pads) {
   const id = pad.dataset.chord as ChordId;
   pad.addEventListener("pointerdown", (event) => {
     event.preventDefault();
-    pointerChords.set(event.pointerId, id);
-    startChord(id, `pointer-${event.pointerId}`);
+    const chords = pointerPads.get(event.pointerId) ?? new Set<ChordId>();
+    pointerPads.set(event.pointerId, chords);
+    chords.add(id);
+    startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, pad));
   });
 }
 
+window.addEventListener("pointermove", (event) => {
+  const chords = pointerPads.get(event.pointerId);
+  if (!chords) return; // this pointer isn't holding anything
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  const pad = target instanceof Element ? target.closest<HTMLButtonElement>(".pad") : null;
+  if (!pad) return;
+  const id = pad.dataset.chord as ChordId;
+  if (chords.has(id)) return; // already part of this strum
+  chords.add(id);
+  startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, pad));
+});
+
 function releasePointer(event: PointerEvent): void {
-  const id = pointerChords.get(event.pointerId);
-  if (id === undefined) return;
-  pointerChords.delete(event.pointerId);
-  stopChord(id, `pointer-${event.pointerId}`);
+  const chords = pointerPads.get(event.pointerId);
+  if (!chords) return;
+  pointerPads.delete(event.pointerId);
+  for (const id of chords) stopChord(id, `pointer-${event.pointerId}`);
 }
 
 window.addEventListener("pointerup", releasePointer);
@@ -170,7 +240,7 @@ window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
   const pad = padByKey.get(event.key.toLowerCase());
   if (!pad) return;
-  startChord(pad.dataset.chord as ChordId, "keyboard");
+  startChord(pad.dataset.chord as ChordId, "keyboard", KEYBOARD_VELOCITY);
 });
 
 window.addEventListener("keyup", (event) => {
