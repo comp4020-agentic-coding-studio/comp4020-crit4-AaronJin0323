@@ -17,10 +17,25 @@ import {
   lerp,
   midiToFrequency,
   saturation,
+  STEP_SECONDS,
   subscribe,
   unsubscribe,
   whiteNoise,
 } from "./engine.ts";
+
+/**
+ * Artemis alone fires an arrow the instant she is struck, before falling in
+ * with the grid. Every other rhythmic god has a slot on step 0 and the clock
+ * starts on the first god in, so a tap on them sounds within ~60ms; Artemis
+ * plays the off-beat (`step % 4 === 2`), which is 0.42s away at best and
+ * 0.71s at worst --- long enough that a quick tap made no sound at all and the
+ * stone read as broken.
+ *
+ * The cost is that the opening arrow can land just before her grid slot, so a
+ * slot falling within this window is skipped rather than flammed against it.
+ * Well under the 0.71s between her slots, so it never swallows a real note.
+ */
+const RESTRIKE_GRACE = STEP_SECONDS * 0.75;
 
 export type GodId = "zeus" | "poseidon" | "hades" | "demeter" | "apollo" | "artemis" | "ares";
 
@@ -672,8 +687,10 @@ export function createArtemis(buses: Buses, initial: Gesture): GodVoice {
   let answering = 0;
   let cursor = 0;
 
-  const tick = (time: number, step: number): void => {
-    if (step % 4 !== 2) return; // the off-beat, opposite Apollo
+  let soundedAt = -1;
+
+  const loose = (time: number): void => {
+    soundedAt = time;
 
     // Answering, she takes Apollo's last pitch up an octave --- literally a
     // reply rather than a second independent melody.
@@ -698,6 +715,14 @@ export function createArtemis(buses: Buses, initial: Gesture): GodVoice {
     });
   };
 
+  const tick = (time: number, step: number): void => {
+    if (step % 4 !== 2) return; // the off-beat, opposite Apollo
+    if (time - soundedAt < RESTRIKE_GRACE) return;
+    loose(time);
+  };
+
+  // The arrow leaves on contact; the grid picks her up from there.
+  loose(context.currentTime);
   subscribe(tick);
 
   return {
@@ -708,8 +733,8 @@ export function createArtemis(buses: Buses, initial: Gesture): GodVoice {
       if (relation === "answer") answering = amount;
     },
     release() {
+      // Her plucks free themselves as they finish; there is no standing graph.
       unsubscribe(tick);
-      void context;
     },
   };
 }

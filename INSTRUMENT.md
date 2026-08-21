@@ -106,6 +106,14 @@ the other side. She plays on the **off-beat**, alternating pan sides each note.
 Cutoff runs 3 kHz → 12 kHz. Her echo send rises with movement speed, so a fast
 hand throws the notes further.
 
+She is the one god that fires an arrow **the moment she is struck**, before
+falling in with the grid. Every other rhythmic god has a slot on step 0 and the
+transport starts on the first god in, so a tap on them sounds within ~60 ms.
+Artemis's slot is `step % 4 === 2`, which is 0.42 s away at best — long enough
+that a quick tap made no sound at all and the stone read as broken. A grid slot
+landing within 0.13 s of that opening arrow is skipped rather than flammed
+against it.
+
 ### Ares — war and the drum
 Purely percussive, on a fixed sixteen-step pattern
 (`1 0 0 0 · 0 0 1 0 · 0 0 1 0 · 0 1 0 0`) — a limping martial figure, not a
