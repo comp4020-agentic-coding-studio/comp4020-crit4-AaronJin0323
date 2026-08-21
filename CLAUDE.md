@@ -98,6 +98,18 @@ so the old lint-specific notes were dropped along with it.)
   that hides the page before capturing it can't also click a control hidden
   that way. Interact first, then hide, then capture --- and hash output files
   before trusting a sweep that looks suspiciously uniform.
+- **`AudioParam.value` does not reflect a `setValueAtTime` scheduled in the
+  future.** Reading `osc.frequency.value` inside a patched `start()` reports
+  the 440Hz default for every note, so a probe built on it silently measures
+  nothing. Wrap `setValueAtTime` and stash what was actually scheduled.
+- **A hand-picked decay constant is a guess, and guesses drift out of sync
+  with the thing they're meant to match.** A visual glow tuned by eye left a
+  stone a fifth lit four seconds after its sound had gone. Declare the real
+  duration (here, each voice's audible tail) and *derive* the rate from it
+  --- `Math.log(100) / tail` reaches the cut-off exactly on time.
+- **Web Audio feedback cycles are only legal through a `DelayNode`**, and a
+  lowpass *inside* the loop is what stops repeats accumulating into wash.
+  Without the damper the tail never dies; with it, each pass loses its top end.
 
 ## Working style
 
