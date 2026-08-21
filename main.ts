@@ -315,16 +315,41 @@ function releasePointer(event: PointerEvent): void {
 window.addEventListener("pointerup", releasePointer);
 window.addEventListener("pointercancel", releasePointer);
 
-// Keyboard: global, not per-button, so a key works no matter what has focus.
-// `repeat` is ignored so holding a key doesn't re-trigger the attack.
+// Enter and Space play whichever totem has focus, so arriving by Tab is a way
+// in on its own --- nothing on the page tells you the letters, and a focused
+// button that stays silent would be a dead end. Held, not clicked, to match
+// every other way of playing; the chord is remembered rather than re-read from
+// focus on keyup, so tabbing away mid-hold can't strand a note.
+let focusKeyChord: ChordId | undefined;
+
+// Otherwise keyboard is global, not per-button, so a letter works no matter
+// what has focus. `repeat` is ignored so holding a key doesn't re-attack.
 window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
+
+  if (event.key === "Enter" || event.key === " ") {
+    const focused = document.activeElement;
+    const totem = focused instanceof Element ? focused.closest<HTMLButtonElement>(".totem") : null;
+    if (!totem || focusKeyChord) return;
+    event.preventDefault(); // Space would scroll, and both would fire a click
+    focusKeyChord = totem.dataset.chord as ChordId;
+    startChord(focusKeyChord, "focus-key", KEYBOARD_VELOCITY);
+    return;
+  }
+
   const totem = totemByKey.get(event.key.toLowerCase());
   if (!totem) return;
   startChord(totem.dataset.chord as ChordId, "keyboard", KEYBOARD_VELOCITY);
 });
 
 window.addEventListener("keyup", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    if (!focusKeyChord) return;
+    stopChord(focusKeyChord, "focus-key");
+    focusKeyChord = undefined;
+    return;
+  }
+
   const totem = totemByKey.get(event.key.toLowerCase());
   if (!totem) return;
   stopChord(totem.dataset.chord as ChordId, "keyboard");
