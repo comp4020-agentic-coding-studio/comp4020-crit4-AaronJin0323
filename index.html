@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chord Keys</title>
+    <title>Pantheon</title>
     <meta
       name="description"
-      content="A seven-pad chord keyboard you play with your mouse, touch, or the A S D F G H J keys — no wrong note."
+      content="Seven carved totems, seven gods, seven chords. Strike them with mouse, touch, or the A S D F G H J keys — every stone is in key, so nothing you play is wrong."
     />
 
     <!--
@@ -27,45 +27,217 @@
       </nav>
     </header>
     <main>
-      <h1>Chord Keys</h1>
+      <h1>Pantheon</h1>
+      <div class="meander" aria-hidden="true"></div>
       <p data-start>
-        Press a key (A S D F G H J), or tap a pad, to hear your first chord.
+        Strike a totem — or press A S D F G H J. Sweep across them to wake the
+        pantheon; every stone is in key, so nothing you play is wrong.
       </p>
 
-      <div class="pads" role="group" aria-label="Chords">
-        <button type="button" class="pad" data-chord="C" data-key="a" aria-pressed="false">
-          <span class="pad-key">A</span>
-          <span class="pad-name">C</span>
+      <!--
+        Seven diatonic triads of C major, one per god. The `data-chord` ids are
+        the chord names the audio engine looks up; the face carries the myth.
+        Each glyph is aria-hidden line art --- the accessible name on the
+        button carries the god, the chord, and the key.
+      -->
+      <div class="totems" role="group" aria-label="Totems of the pantheon">
+        <button
+          type="button"
+          class="totem"
+          data-chord="C"
+          data-key="a"
+          aria-pressed="false"
+          aria-label="Zeus — C major, key A"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M14 2 6 13h5l-2 9 9-12h-5z" />
+            </svg>
+          </span>
+          <span class="totem-name">Zeus</span>
+          <span class="totem-key">A</span>
         </button>
-        <button type="button" class="pad" data-chord="Dm" data-key="s" aria-pressed="false">
-          <span class="pad-key">S</span>
-          <span class="pad-name">Dm</span>
-        </button>
-        <button type="button" class="pad" data-chord="Em" data-key="d" aria-pressed="false">
-          <span class="pad-key">D</span>
-          <span class="pad-name">Em</span>
-        </button>
-        <button type="button" class="pad" data-chord="F" data-key="f" aria-pressed="false">
-          <span class="pad-key">F</span>
-          <span class="pad-name">F</span>
-        </button>
-        <button type="button" class="pad" data-chord="G" data-key="g" aria-pressed="false">
-          <span class="pad-key">G</span>
-          <span class="pad-name">G</span>
-        </button>
-        <button type="button" class="pad" data-chord="Am" data-key="h" aria-pressed="false">
-          <span class="pad-key">H</span>
-          <span class="pad-name">Am</span>
-        </button>
-        <button type="button" class="pad" data-chord="Bdim" data-key="j" aria-pressed="false">
-          <span class="pad-key">J</span>
-          <span class="pad-name">B°</span>
-        </button>
-      </div>
 
-      <div class="brightness">
-        <label for="brightness">Brightness</label>
-        <input type="range" id="brightness" min="0" max="100" value="55" />
+        <button
+          type="button"
+          class="totem"
+          data-chord="Dm"
+          data-key="s"
+          aria-pressed="false"
+          aria-label="Poseidon — D minor, key S"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M12 3v19M5 11V6M19 11V6M4.5 11h15" />
+              <path d="M12 3l-1.6 2.2M12 3l1.6 2.2M5 6L3.8 7.6M5 6l1.2 1.6M19 6l-1.2 1.6M19 6l1.2 1.6" />
+            </svg>
+          </span>
+          <span class="totem-name">Poseidon</span>
+          <span class="totem-key">S</span>
+        </button>
+
+        <button
+          type="button"
+          class="totem"
+          data-chord="Em"
+          data-key="d"
+          aria-pressed="false"
+          aria-label="Hades — E minor, key D"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M12 22V9M6.5 9.5V4.5M17.5 9.5V4.5M5 10h14" />
+              <path d="M6.5 4.5L5.3 6.1M6.5 4.5l1.2 1.6M17.5 4.5l-1.2 1.6M17.5 4.5l1.2 1.6" />
+            </svg>
+          </span>
+          <span class="totem-name">Hades</span>
+          <span class="totem-key">D</span>
+        </button>
+
+        <button
+          type="button"
+          class="totem"
+          data-chord="F"
+          data-key="f"
+          aria-pressed="false"
+          aria-label="Demeter — F major, key F"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M12 22V4M12 4l-2 2.2M12 4l2 2.2" />
+              <path d="M12 9L8 6.5M12 9l4-2.5M12 13.5L8 11M12 13.5l4-2.5M12 18L8 15.5M12 18l4-2.5" />
+            </svg>
+          </span>
+          <span class="totem-name">Demeter</span>
+          <span class="totem-key">F</span>
+        </button>
+
+        <button
+          type="button"
+          class="totem"
+          data-chord="G"
+          data-key="g"
+          aria-pressed="false"
+          aria-label="Apollo — G major, key G"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <!-- tortoise-shell soundbox at the foot, two arms flaring past
+                   the yoke; the tips breaking the crossbar are what stop the
+                   silhouette closing into a barrel -->
+              <path d="M8 17.5c0 2.7 1.8 4.5 4 4.5s4-1.8 4-4.5" />
+              <path d="M8 17.5h8" />
+              <path d="M8 17.5C5.5 13 4 8 5 3.5M16 17.5c2.5-4.5 4-9.5 3-14" />
+              <path d="M4.5 6.5h15" />
+              <path d="M9.5 7v10.5M12 7v10.5M14.5 7v10.5" stroke-width="0.9" />
+            </svg>
+          </span>
+          <span class="totem-name">Apollo</span>
+          <span class="totem-key">G</span>
+        </button>
+
+        <button
+          type="button"
+          class="totem"
+          data-chord="Am"
+          data-key="h"
+          aria-pressed="false"
+          aria-label="Artemis — A minor, key H"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M7 2.5C13 6.5 13 17.5 7 21.5M7 2.5v19" />
+              <path d="M5.5 12h13M18.5 12l-3-2.2M18.5 12l-3 2.2" />
+            </svg>
+          </span>
+          <span class="totem-name">Artemis</span>
+          <span class="totem-key">H</span>
+        </button>
+
+        <button
+          type="button"
+          class="totem"
+          data-chord="Bdim"
+          data-key="j"
+          aria-pressed="false"
+          aria-label="Ares — B diminished, key J"
+        >
+          <span class="totem-glyph">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <!-- the spears break either side of the boss so the shield reads
+                   as in front of them, not as a crosshair over them -->
+              <path d="M4 20 7.8 16.2M16.2 7.8 20 4M20 4l-4 .6M20 4l-.6 4" />
+              <path d="M20 20 16.2 16.2M7.8 7.8 4 4M4 4l4 .6M4 4l.6 4" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="12" cy="12" r="1" />
+            </svg>
+          </span>
+          <span class="totem-name">Ares</span>
+          <span class="totem-key">J</span>
+        </button>
       </div>
     </main>
     <script type="module" src="./main.ts"></script>

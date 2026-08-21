@@ -84,6 +84,16 @@ so the old lint-specific notes were dropped along with it.)
 - **A dimension in `vw` with an offset in `vh` (or vice versa) needs a
   separate override per viewport shape** --- it can't be derived once and
   reused, because the two units don't track each other across aspect ratios.
+- **A fully green browser suite says nothing about whether the page looks
+  right.** A 38-check Playwright run passed while the layout had a dead
+  vertical third, hollow buttons, and a glyph rendering as a blob. Assertions
+  cover behaviour; only reading the screenshot covers design. Budget a look at
+  the image as a separate step, not as a formality after the checks pass.
+- **You cannot judge small artwork in a full-page screenshot.** An SVG icon is
+  ~50px inside a downscaled 1920px capture — enough to see that something is
+  there, not enough to see what it is. Screenshot the *element* with
+  `deviceScaleFactor: 4` (and `reducedMotion: "reduce"`, or an opacity
+  animation captures mid-fade) when the detail is the thing being checked.
 - **`visibility: hidden` takes an element out of hit-testing**, so a harness
   that hides the page before capturing it can't also click a control hidden
   that way. Interact first, then hide, then capture --- and hash output files

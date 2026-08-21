@@ -1,12 +1,22 @@
-// A seven-pad chord keyboard. Each pad is one diatonic triad of C major, so
-// any combination a player presses stays in key --- that's what "no wrong
-// note" means here, not just a claim. A shared low-pass filter, driven by
-// the brightness slider, is one continuous expressive control (the
-// instrument's overall tone); how and where you press a pad is the other
-// --- press position sets that note's loudness, attack, and how fast it
-// arpeggiates, so the same chord sounds different depending on how you play
-// it, and dragging across pads strums up a ringing cluster instead of
-// firing one chord at a time.
+// Pantheon --- seven carved totems, seven gods, seven chords.
+//
+// Each totem is one diatonic triad of C major, so any combination a player
+// strikes stays in key: that's what "nothing you play is wrong" means here,
+// not just a claim on the page.
+//
+// There is exactly one way to interact: strike the stone. Nothing to adjust,
+// no parameters --- so tone has to come from the playing itself, and it comes
+// from two places:
+//
+//   * WHERE you strike a totem (its vertical position) sets that chord's
+//     loudness, attack, arpeggio speed, and brightness together.
+//   * HEAT --- a value that rises with every strike and cools when you rest.
+//     Play hard and the pantheon wakes: everything opens up and brightens.
+//     Leave it alone and it settles back down. A long-held chord mellows on
+//     its own.
+//
+// Two players therefore never sound the same, and the same player never
+// sounds the same twice.
 
 type ChordId = "C" | "Dm" | "Em" | "F" | "G" | "Am" | "Bdim";
 
@@ -26,63 +36,57 @@ function midiToFrequency(midi: number): number {
   return 440 * 2 ** ((midi - 69) / 12);
 }
 
-function cutoffFor(sliderValue: number): number {
-  // 0-100 mapped exponentially onto 300-8000 Hz --- pitch perception is
-  // logarithmic, so a linear slider would spend most of its travel in the
-  // top octave.
-  const min = 300;
-  const max = 8000;
-  return min * (max / min) ** (sliderValue / 100);
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
-// Keyboard has no notion of "where" a key was pressed, so it always plays
-// at this fixed, medium velocity. Pointer/touch is the primary expressive
-// surface; keyboard is a consistent fallback, not a degraded one.
+// Strike position and heat together decide how open a voice sounds, mapped
+// exponentially onto 300-8000 Hz --- pitch perception is logarithmic, so a
+// linear map would spend most of its range in the top octave. Darkest is a
+// soft strike on a cold pantheon (~840 Hz); brightest is a hard strike at
+// full heat (8 kHz).
+function cutoffFor(velocity: number, currentHeat: number): number {
+  const min = 300;
+  const max = 8000;
+  return min * (max / min) ** clamp01(0.18 + velocity * 0.52 + currentHeat * 0.3);
+}
+
+// The keyboard has no notion of *where* a key was struck, so it always plays
+// at this fixed, medium velocity. Pointer and touch are the expressive
+// surface; the keyboard is a consistent alternative, not a degraded one.
 const KEYBOARD_VELOCITY = 0.55;
 
-const pads = Array.from(document.querySelectorAll<HTMLButtonElement>(".pad"));
-const padByChord = new Map(pads.map((pad) => [pad.dataset.chord as ChordId, pad]));
-const padByKey = new Map(pads.map((pad) => [pad.dataset.key ?? "", pad]));
-const brightness = document.querySelector<HTMLInputElement>("#brightness");
+const totems = Array.from(document.querySelectorAll<HTMLButtonElement>(".totem"));
+const totemByChord = new Map(totems.map((totem) => [totem.dataset.chord as ChordId, totem]));
+const totemByKey = new Map(totems.map((totem) => [totem.dataset.key ?? "", totem]));
 
 let audioContext: AudioContext | undefined;
-let filterNode: BiquadFilterNode | undefined;
+let masterGain: GainNode | undefined;
 
-function ensureAudio(): { context: AudioContext; filter: BiquadFilterNode } {
+function ensureAudio(): { context: AudioContext; master: GainNode } {
   if (!audioContext) {
     audioContext = new AudioContext();
-    filterNode = audioContext.createBiquadFilter();
-    filterNode.type = "lowpass";
-    filterNode.frequency.value = cutoffFor(Number(brightness?.value ?? 55));
-    const master = audioContext.createGain();
-    master.gain.value = 0.9;
-    filterNode.connect(master);
-    master.connect(audioContext.destination);
+    masterGain = audioContext.createGain();
+    masterGain.gain.value = 0.9;
+    masterGain.connect(audioContext.destination);
   }
+  // Browsers start a context suspended until a user gesture resumes it.
   if (audioContext.state === "suspended") {
     void audioContext.resume();
   }
-  return { context: audioContext, filter: filterNode! };
+  return { context: audioContext, master: masterGain! };
 }
 
-brightness?.addEventListener("input", () => {
-  if (!audioContext || !filterNode) return;
-  filterNode.frequency.setTargetAtTime(
-    cutoffFor(Number(brightness.value)),
-    audioContext.currentTime,
-    0.05,
-  );
-});
-
 // A held chord is a drone (all three notes always audible, quietly) with a
-// rotating spotlight (one note at a time boosted louder). That's the
-// "hold-to-arpeggiate" texture: the harmony is always fully present, but
-// it's alive rather than a static block chord.
+// rotating spotlight (one note at a time boosted louder). That's the texture:
+// the harmony is always fully present, but it breathes rather than sitting
+// there as a static block chord. Each voice owns its filter, so two chords
+// held at once can have different brightness.
 interface Voice {
   oscillators: OscillatorNode[];
   gains: GainNode[];
-  droneLevel: number;
-  spotlightLevel: number;
+  filter: BiquadFilterNode;
+  velocity: number;
   arpeggioTimer: number;
 }
 
@@ -92,13 +96,78 @@ const activeVoices = new Map<ChordId, Voice>();
 // held doesn't cut the chord early.
 const activeSources = new Map<ChordId, Set<string>>();
 
-function setPadActive(id: ChordId, active: boolean, velocity?: number): void {
-  const pad = padByChord.get(id);
-  if (!pad) return;
-  pad.setAttribute("aria-pressed", String(active));
-  pad.classList.toggle("is-active", active);
+// --- Heat -------------------------------------------------------------
+// Rises on every strike, cools continuously. Drives both the filter (audible)
+// and the --heat custom property (visible), so the page and the sound wake up
+// together.
+
+const HEAT_PER_STRIKE = 0.14;
+const HEAT_DECAY_PER_SECOND = 0.25;
+
+let heat = 0;
+let heatFrame = 0;
+let lastFrameTime = 0;
+let lastFilterUpdate = 0;
+let lastAppliedHeat = 0;
+
+function retuneVoice(voice: Voice): void {
+  if (!audioContext) return;
+  voice.filter.frequency.setTargetAtTime(
+    cutoffFor(voice.velocity, heat),
+    audioContext.currentTime,
+    0.08,
+  );
+}
+
+function startHeatLoop(): void {
+  if (heatFrame) return;
+  lastFrameTime = performance.now();
+
+  const step = (now: number): void => {
+    heat = Math.max(0, heat - ((now - lastFrameTime) / 1000) * HEAT_DECAY_PER_SECOND);
+    lastFrameTime = now;
+    document.documentElement.style.setProperty("--heat", heat.toFixed(3));
+
+    // Re-glide sustained voices toward the new heat --- but throttled. One
+    // automation event per filter per animation frame is both wasteful and
+    // audible as stepping, so only write when heat has actually moved.
+    if (now - lastFilterUpdate > 60 && Math.abs(heat - lastAppliedHeat) > 0.01) {
+      lastFilterUpdate = now;
+      lastAppliedHeat = heat;
+      for (const voice of activeVoices.values()) retuneVoice(voice);
+    }
+
+    if (heat > 0.001) {
+      heatFrame = requestAnimationFrame(step);
+      return;
+    }
+
+    // Fully cool: land the last update and stop the loop rather than leaving
+    // a timer running for the rest of the session.
+    heat = 0;
+    heatFrame = 0;
+    lastAppliedHeat = 0;
+    document.documentElement.style.setProperty("--heat", "0");
+    for (const voice of activeVoices.values()) retuneVoice(voice);
+  };
+
+  heatFrame = requestAnimationFrame(step);
+}
+
+function pumpHeat(): void {
+  heat = Math.min(1, heat + HEAT_PER_STRIKE);
+  startHeatLoop();
+}
+
+// --- Voices -----------------------------------------------------------
+
+function setTotemActive(id: ChordId, active: boolean, velocity?: number): void {
+  const totem = totemByChord.get(id);
+  if (!totem) return;
+  totem.setAttribute("aria-pressed", String(active));
+  totem.classList.toggle("is-struck", active);
   if (active && velocity !== undefined) {
-    pad.style.setProperty("--velocity", String(velocity));
+    totem.style.setProperty("--velocity", String(velocity));
   }
 }
 
@@ -109,14 +178,20 @@ function startChord(id: ChordId, source: string, velocity: number): void {
   sources.add(source);
   if (activeVoices.has(id)) return; // already sounding from another source
 
-  const { context, filter } = ensureAudio();
+  const { context, master } = ensureAudio();
   const now = context.currentTime;
-  // Harder press (velocity closer to 1): louder, snappier attack, faster
-  // arpeggio. Softer press: quieter, gentler attack, slower arpeggio.
+
+  // A harder strike (velocity near 1) is louder, snappier, faster and
+  // brighter; a soft one is quieter, gentler and slower.
   const droneLevel = 0.05 + velocity * 0.05;
   const spotlightLevel = 0.14 + velocity * 0.14;
   const attack = 0.05 - velocity * 0.035;
   const tickMs = 260 - velocity * 180;
+
+  const filter = context.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = cutoffFor(velocity, heat);
+  filter.connect(master);
 
   const oscillators: OscillatorNode[] = [];
   const gains: GainNode[] = [];
@@ -140,19 +215,20 @@ function startChord(id: ChordId, source: string, velocity: number): void {
   const tick = (): void => {
     if (!audioContext) return;
     const t = audioContext.currentTime;
-    const spotlightIndex = step % gains.length;
+    const spotlight = step % gains.length;
     gains.forEach((gain, i) => {
       gain.gain.cancelScheduledValues(t);
       gain.gain.setValueAtTime(gain.gain.value, t);
-      gain.gain.linearRampToValueAtTime(i === spotlightIndex ? spotlightLevel : droneLevel, t + 0.04);
+      gain.gain.linearRampToValueAtTime(i === spotlight ? spotlightLevel : droneLevel, t + 0.04);
     });
     step++;
   };
   tick(); // light the first note immediately, don't wait a full tick
   const arpeggioTimer = window.setInterval(tick, tickMs);
 
-  activeVoices.set(id, { oscillators, gains, droneLevel, spotlightLevel, arpeggioTimer });
-  setPadActive(id, true, velocity);
+  activeVoices.set(id, { oscillators, gains, filter, velocity, arpeggioTimer });
+  setTotemActive(id, true, velocity);
+  pumpHeat();
 }
 
 function stopChord(id: ChordId, source: string): void {
@@ -173,78 +249,83 @@ function stopChord(id: ChordId, source: string): void {
     gain.gain.setValueAtTime(gain.gain.value, now);
     gain.gain.linearRampToValueAtTime(0, now + release);
   }
-  for (const osc of voice.oscillators) {
+  voice.oscillators.forEach((osc, i) => {
     osc.stop(now + release + 0.01);
-    osc.addEventListener("ended", () => osc.disconnect());
-  }
+    osc.addEventListener("ended", () => {
+      osc.disconnect();
+      // All three stop together, so tearing the shared filter down with the
+      // first one to end is safe --- and stops voices leaking nodes.
+      if (i === 0) voice.filter.disconnect();
+    });
+  });
 
-  setPadActive(id, false);
+  setTotemActive(id, false);
 }
 
-// How hard/where a pad was pressed: vertical position within the pad,
-// bottom = hardest. pointer.pressure is a constant 0.5 for mouse and most
-// touchscreens, so it isn't a usable signal --- position is, and works the
-// same way across mouse, trackpad, and touch.
-function velocityFromEvent(event: PointerEvent, pad: HTMLElement): number {
-  const rect = pad.getBoundingClientRect();
+// --- Input ------------------------------------------------------------
+
+// How hard a totem was struck: vertical position within the stone, bottom =
+// hardest. pointer.pressure is a constant 0.5 for mouse and most
+// touchscreens, so it isn't a usable signal --- position is, and it behaves
+// the same across mouse, trackpad, and touch.
+function velocityFromEvent(event: PointerEvent, totem: HTMLElement): number {
+  const rect = totem.getBoundingClientRect();
   const fraction = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
-  const clamped = Math.min(1, Math.max(0, fraction));
-  return 0.25 + clamped * 0.75;
+  return 0.25 + clamp01(fraction) * 0.75;
 }
 
-// Pointer (mouse or touch): tracked per pointerId as the *set* of chords
-// that pointer currently has sounding. A plain tap holds one chord, same as
-// before. Dragging across pads adds each newly-entered pad to the set ---
-// a strum builds a ringing cluster rather than swapping one chord for
-// another --- and releasing the pointer (anywhere, via `window`, not the
-// pad) tears down everything that pointer built up, so a drag off the row
-// never leaves a chord stuck on.
-const pointerPads = new Map<number, Set<ChordId>>();
+// Pointer (mouse or touch): tracked per pointerId as the *set* of chords that
+// pointer currently has sounding. A plain strike holds one chord. Sweeping
+// across the row adds each newly-entered totem to the set --- a strum builds
+// a ringing cluster rather than swapping one chord for another --- and
+// releasing (anywhere, via `window`, not the button) tears down everything
+// that pointer built up, so a drag off the row never leaves a chord stuck on.
+const pointerChords = new Map<number, Set<ChordId>>();
 
-for (const pad of pads) {
-  const id = pad.dataset.chord as ChordId;
-  pad.addEventListener("pointerdown", (event) => {
+for (const totem of totems) {
+  const id = totem.dataset.chord as ChordId;
+  totem.addEventListener("pointerdown", (event) => {
     event.preventDefault();
-    const chords = pointerPads.get(event.pointerId) ?? new Set<ChordId>();
-    pointerPads.set(event.pointerId, chords);
+    const chords = pointerChords.get(event.pointerId) ?? new Set<ChordId>();
+    pointerChords.set(event.pointerId, chords);
     chords.add(id);
-    startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, pad));
+    startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, totem));
   });
 }
 
 window.addEventListener("pointermove", (event) => {
-  const chords = pointerPads.get(event.pointerId);
+  const chords = pointerChords.get(event.pointerId);
   if (!chords) return; // this pointer isn't holding anything
-  const target = document.elementFromPoint(event.clientX, event.clientY);
-  const pad = target instanceof Element ? target.closest<HTMLButtonElement>(".pad") : null;
-  if (!pad) return;
-  const id = pad.dataset.chord as ChordId;
-  if (chords.has(id)) return; // already part of this strum
+  const under = document.elementFromPoint(event.clientX, event.clientY);
+  const totem = under instanceof Element ? under.closest<HTMLButtonElement>(".totem") : null;
+  if (!totem) return;
+  const id = totem.dataset.chord as ChordId;
+  if (chords.has(id)) return; // already part of this sweep
   chords.add(id);
-  startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, pad));
+  startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, totem));
 });
 
 function releasePointer(event: PointerEvent): void {
-  const chords = pointerPads.get(event.pointerId);
+  const chords = pointerChords.get(event.pointerId);
   if (!chords) return;
-  pointerPads.delete(event.pointerId);
+  pointerChords.delete(event.pointerId);
   for (const id of chords) stopChord(id, `pointer-${event.pointerId}`);
 }
 
 window.addEventListener("pointerup", releasePointer);
 window.addEventListener("pointercancel", releasePointer);
 
-// Keyboard: global, not per-button, so a key works no matter what has
-// focus. `repeat` is ignored so holding a key doesn't re-trigger the attack.
+// Keyboard: global, not per-button, so a key works no matter what has focus.
+// `repeat` is ignored so holding a key doesn't re-trigger the attack.
 window.addEventListener("keydown", (event) => {
   if (event.repeat) return;
-  const pad = padByKey.get(event.key.toLowerCase());
-  if (!pad) return;
-  startChord(pad.dataset.chord as ChordId, "keyboard", KEYBOARD_VELOCITY);
+  const totem = totemByKey.get(event.key.toLowerCase());
+  if (!totem) return;
+  startChord(totem.dataset.chord as ChordId, "keyboard", KEYBOARD_VELOCITY);
 });
 
 window.addEventListener("keyup", (event) => {
-  const pad = padByKey.get(event.key.toLowerCase());
-  if (!pad) return;
-  stopChord(pad.dataset.chord as ChordId, "keyboard");
+  const totem = totemByKey.get(event.key.toLowerCase());
+  if (!totem) return;
+  stopChord(totem.dataset.chord as ChordId, "keyboard");
 });
