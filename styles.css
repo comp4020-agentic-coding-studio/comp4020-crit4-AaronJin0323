@@ -1,12 +1,16 @@
 /*
-  Pantheon --- obsidian night, bronze at rest, gold ablaze.
+  Pantheon --- obsidian night, bronze at rest, each god's own light when awake.
 
-  Two custom properties carry the instrument's state into the visuals, both
-  written from main.ts:
-    --heat      (on :root)  0-1, rises as you play and cools when you rest
-    --velocity  (per totem) 0.25-1, how hard that stone was last struck
-  Neither is transitioned in CSS: --heat is already updated every animation
-  frame from JS, and a strike should land instantly.
+  All state arrives from main.ts as custom properties on :root:
+
+    --heat      0-1  how much of the pantheon is awake; warms the whole scene
+    --g-zeus …  0-1  one per god, rising on invocation and falling at roughly
+                     the rate that god's sound decays
+
+  That last part is the point: the picture is lit for as long as you can hear
+  the sound, not for a fixed click animation. Nothing here is transitioned in
+  CSS --- the values are already eased every animation frame in JS, and adding
+  a second easing on top only makes the response feel late.
 */
 
 :root {
@@ -19,6 +23,9 @@
   --marble-dim: #a49c8c;
   --bronze: #b98f56;
   --bronze-dim: #7a6039;
+  /* Borders need 3:1 against --stone to be perceivable; --bronze-dim is only
+     2.9:1, so it is decoration from here on and never an edge on its own. */
+  --edge: #96754a;
   --gold: #f0c469;
 }
 
@@ -32,7 +39,7 @@ body {
   flex-direction: column;
   min-height: 100svh;
   margin: 0;
-  padding: 2rem 1.25rem 3rem;
+  padding: 1.5rem 1.25rem 3rem;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman",
     serif;
   line-height: 1.6;
@@ -41,23 +48,116 @@ body {
     radial-gradient(1100px 560px at 50% 118%, #2a1a10, transparent 62%),
     radial-gradient(900px 520px at 50% -12%, #1a1830, transparent 68%),
     var(--night);
+  /* A drag across the colonnade is a strum, not a text selection. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
-/* The ember: the whole scene warms as the pantheon wakes. */
+/* The ember: the whole scene warms as more of the pantheon wakes. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(1000px 520px at 50% 112%, rgb(255 150 60 / 0.5), transparent 62%);
+  background: radial-gradient(1000px 520px at 50% 112%, rgb(255 150 60 / 0.45), transparent 62%);
   opacity: var(--heat);
+}
+
+/* --- The aether ------------------------------------------------------ */
+/* Seven layers, one per god, weighted to the edges of the screen so the
+   inscription in the middle keeps its contrast whatever is playing. */
+
+.aether {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Zeus: the upper atmosphere lights up. */
+.sky {
+  opacity: var(--g-zeus, 0);
+  background: radial-gradient(130% 48% at 50% -14%, rgb(206 220 255 / 0.4), transparent 72%);
+}
+
+/* Poseidon: slow banded swell across the lower half. */
+.sea {
+  opacity: var(--g-poseidon, 0);
+  background: repeating-linear-gradient(
+    177deg,
+    rgb(95 200 216 / 0.16) 0 2px,
+    transparent 2px 18px
+  );
+  mask-image: linear-gradient(180deg, transparent 45%, #000 105%);
+}
+
+/* Hades: the floor of the scene deepens and goes violet. */
+.deep {
+  opacity: var(--g-hades, 0);
+  background:
+    radial-gradient(120% 62% at 50% 118%, rgb(90 46 132 / 0.62), transparent 66%),
+    linear-gradient(180deg, transparent 40%, rgb(0 0 0 / 0.55));
+}
+
+/* Demeter: an ornament that opens outward from the colonnade. */
+.bloom {
+  opacity: var(--g-demeter, 0);
+  background:
+    radial-gradient(closest-side, rgb(143 206 106 / 0.22), transparent 100%),
+    radial-gradient(closest-side, rgb(143 206 106 / 0.14), transparent 100%);
+  background-repeat: no-repeat;
+  background-position:
+    50% 62%,
+    50% 62%;
+  background-size:
+    calc(28% + var(--g-demeter, 0) * 46%) calc(30% + var(--g-demeter, 0) * 50%),
+    calc(60% + var(--g-demeter, 0) * 60%) calc(58% + var(--g-demeter, 0) * 60%);
+}
+
+/* Apollo: plain warmth, centred and steady. */
+.sun {
+  opacity: var(--g-apollo, 0);
+  background: radial-gradient(66% 58% at 50% 42%, rgb(255 179 71 / 0.22), transparent 72%);
+}
+
+/* Artemis: cool points scattered across the field. */
+.stars {
+  opacity: var(--g-artemis, 0);
+  background-image:
+    radial-gradient(1.6px 1.6px at 18% 24%, rgb(184 216 232 / 0.9), transparent),
+    radial-gradient(1.3px 1.3px at 71% 12%, rgb(184 216 232 / 0.75), transparent),
+    radial-gradient(1.8px 1.8px at 43% 78%, rgb(184 216 232 / 0.85), transparent);
+  background-size:
+    240px 190px,
+    170px 230px,
+    310px 260px;
+}
+
+/* Ares: restrained impact pulses rising off the base. */
+.shock {
+  opacity: var(--g-ares, 0);
+  background: radial-gradient(58% 42% at 50% 108%, rgb(224 90 90 / 0.34), transparent 70%);
 }
 
 header,
 main {
   position: relative;
   z-index: 1;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 main {
@@ -105,20 +205,78 @@ h1 {
   mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
 }
 
-/* The only prose on the page, so it reads as an inscription rather than a
-   caption. Everything a player needs to know is learned by touching a stone. */
+/* The inscription: an invitation until the first god sounds, and a
+   description of the pantheon after that. Sized generously because it is the
+   only thing on the page that ever says anything. */
 [data-start] {
+  min-height: 1.6em;
   margin: 0;
   text-align: center;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-style: italic;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
+  color: var(--marble);
+}
+
+.hint {
+  margin: 0.35rem 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--marble-dim);
 }
 
 :focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 3px;
+}
+
+/* --- Mute ------------------------------------------------------------ */
+
+.mute {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Comfortably past the 44px touch target once the padding is counted. */
+  min-height: 2.75rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--bronze);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.mute-mark {
+  position: relative;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+/* Muted state is a shape, not only a colour: the dot hollows out and is
+   struck through. */
+.mute.is-muted {
+  color: var(--marble-dim);
+}
+
+.mute.is-muted .mute-mark {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentcolor;
+}
+
+.mute.is-muted .mute-mark::after {
+  content: "";
+  position: absolute;
+  inset: -0.15rem 0.28rem;
+  border-left: 1px solid currentcolor;
+  rotate: 45deg;
 }
 
 /* --- The totems ------------------------------------------------------ */
@@ -128,7 +286,7 @@ h1 {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.75rem;
-  margin-top: 2.75rem;
+  margin-top: 2.25rem;
 }
 
 .totem {
@@ -144,21 +302,29 @@ h1 {
   /* bottom padding leaves the plinth clear for the key letter */
   padding: 1rem 0.4rem 2.6rem;
   overflow: hidden;
-  border: 1px solid var(--bronze-dim);
+  border: 1px solid
+    color-mix(in srgb, var(--accent) calc(var(--lit, 0) * 100%), var(--edge));
   border-radius: 0.35rem 0.35rem 0.15rem 0.15rem;
   background:
     repeating-linear-gradient(90deg, rgb(255 255 255 / 0.035) 0 1px, transparent 1px 9px),
-    linear-gradient(180deg, var(--stone-lit), var(--stone) 45%, #14121b);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) calc(var(--lit, 0) * 26%), var(--stone-lit)),
+      var(--stone) 45%,
+      #14121b
+    );
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.07),
     inset 0 -14px 26px rgb(0 0 0 / 0.5),
+    0 0 calc(var(--lit, 0) * 2.4rem) color-mix(in srgb, var(--accent) 70%, transparent),
     0 10px 24px rgb(0 0 0 / 0.45);
-  color: var(--bronze);
+  color: color-mix(in srgb, var(--accent) calc(var(--lit, 0) * 100%), var(--bronze));
   font: inherit;
   cursor: pointer;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The capital: a lit lip along the top of each stone. */
@@ -170,12 +336,26 @@ h1 {
   background: linear-gradient(180deg, var(--bronze-dim), transparent);
 }
 
+/*
+  The plinth bar. This is the cue that does not depend on colour or on
+  animation: it is a bar that is a different length, and its length is how
+  long the sound has left.
+*/
+.totem::after {
+  content: "";
+  position: absolute;
+  inset: auto 18% 0.35rem;
+  height: 2px;
+  background: currentcolor;
+  scale: var(--lit, 0) 1;
+}
+
 .totem-glyph {
   display: block;
   width: 62%;
   max-width: 3.4rem;
   color: inherit;
-  filter: drop-shadow(0 0 calc(var(--heat) * 7px) rgb(240 196 105 / 0.8));
+  filter: drop-shadow(0 0 calc(var(--lit, 0) * 10px) var(--accent));
 }
 
 .totem-glyph svg {
@@ -185,90 +365,71 @@ h1 {
 }
 
 .totem-name {
-  font-size: 0.7rem;
-  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
   line-height: 1.3;
   text-transform: uppercase;
-  color: var(--marble-dim);
+  color: color-mix(in srgb, var(--marble) calc(var(--lit, 0) * 100%), var(--marble-dim));
 }
 
 .totem-key {
   position: absolute;
-  bottom: 0.8rem;
+  bottom: 1rem;
   left: 50%;
   translate: -50% 0;
   padding: 0 0.4rem;
   border: 1px solid currentcolor;
   border-radius: 0.2rem;
-  font-size: 0.66rem;
+  /* --bronze, not --bronze-dim: 5.9:1 on the stone face rather than 2.9:1. */
+  font-size: 0.7rem;
   letter-spacing: 0.1em;
-  color: var(--bronze-dim);
+  color: inherit;
 }
 
-.totem.is-struck {
-  border-color: var(--accent, var(--gold));
-  color: var(--accent, var(--gold));
-  background:
-    repeating-linear-gradient(90deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 9px),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--accent, var(--gold)) 24%, var(--stone-lit)),
-      var(--stone)
-    );
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.14),
-    0 0 calc(var(--velocity, 0.5) * 2.4rem) var(--accent, var(--gold)),
-    0 10px 24px rgb(0 0 0 / 0.5);
-}
-
-.totem.is-struck .totem-name {
-  color: var(--marble);
-}
-
-.totem.is-struck .totem-key {
-  color: var(--accent, var(--gold));
-}
-
-/* One hue per god. */
-.totem[data-chord="C"] {
+/* One light per god, and one visual rate per god --- --lit is that god's own
+   decay curve, so the stone stays lit exactly as long as it stays audible. */
+.totem[data-god="zeus"] {
   --accent: #ffe08a;
+  --lit: var(--g-zeus, 0);
 }
 
-.totem[data-chord="Dm"] {
+.totem[data-god="poseidon"] {
   --accent: #5fc8d8;
+  --lit: var(--g-poseidon, 0);
 }
 
-.totem[data-chord="Em"] {
+.totem[data-god="hades"] {
   --accent: #9b7ad6;
+  --lit: var(--g-hades, 0);
 }
 
-.totem[data-chord="F"] {
-  --accent: #e0b25a;
+.totem[data-god="demeter"] {
+  --accent: #8fce6a;
+  --lit: var(--g-demeter, 0);
 }
 
-.totem[data-chord="G"] {
+.totem[data-god="apollo"] {
   --accent: #ffb347;
+  --lit: var(--g-apollo, 0);
 }
 
-.totem[data-chord="Am"] {
+.totem[data-god="artemis"] {
   --accent: #b8d8e8;
+  --lit: var(--g-artemis, 0);
 }
 
-.totem[data-chord="Bdim"] {
+.totem[data-god="ares"] {
   --accent: #e05a5a;
+  --lit: var(--g-ares, 0);
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .totem {
-    transition:
-      border-color 120ms ease,
-      color 120ms ease,
-      box-shadow 120ms ease,
-      transform 120ms ease;
+    transition: translate 120ms ease;
   }
 
-  .totem.is-struck {
-    transform: translateY(3px);
+  .totem.is-awake {
+    translate: 0 3px;
   }
 
   /* At rest the carvings breathe, offset so the row isn't in lockstep. */
@@ -284,8 +445,32 @@ h1 {
     animation-delay: -2.3s;
   }
 
-  .totem.is-struck .totem-glyph {
+  .totem.is-awake .totem-glyph {
     animation: none;
+  }
+
+  /* Lightning: a flash on top of the sky layer, so it is already scaled by
+     --g-zeus and cannot fire while Zeus is silent. */
+  .sky::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 40% at 46% -8%, rgb(255 255 255 / 0.5), transparent 62%);
+    animation: strike 5.3s ease-out infinite;
+  }
+
+  .sea {
+    animation: swell 9s ease-in-out infinite alternate;
+  }
+
+  .stars {
+    animation: drift 26s linear infinite;
+  }
+
+  /* One bar at 84bpm. The spikes sit on Ares's four accents, so the picture
+     carries the same rhythm the drum is playing. */
+  .shock {
+    animation: impact 2.857s linear infinite;
   }
 }
 
@@ -300,18 +485,102 @@ h1 {
   }
 }
 
+@keyframes strike {
+  0%,
+  4%,
+  100% {
+    opacity: 0;
+  }
+
+  1% {
+    opacity: 1;
+  }
+
+  2% {
+    opacity: 0.25;
+  }
+
+  3% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes swell {
+  from {
+    translate: 0 0;
+  }
+
+  to {
+    translate: 0 -9px;
+  }
+}
+
+@keyframes drift {
+  from {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+
+  to {
+    background-position:
+      240px 0,
+      -170px 0,
+      310px 0;
+  }
+}
+
+@keyframes impact {
+  0%,
+  37.5%,
+  62.5%,
+  81.25% {
+    opacity: var(--g-ares, 0);
+  }
+
+  12%,
+  50%,
+  74%,
+  93%,
+  100% {
+    opacity: calc(var(--g-ares, 0) * 0.25);
+  }
+}
+
 /* Phone: four stones, then three, both rows centred under the title. */
 @media (width < 34rem) {
+  body {
+    padding: 1rem 0.9rem 2rem;
+  }
+
   .totems {
     gap: 0.5rem;
+    margin-top: 1.5rem;
   }
 
   .totem {
     flex: 0 0 calc((100% - 1.5rem) / 4);
+    padding: 0.8rem 0.25rem 2.4rem;
   }
 
+  /* Bigger, not smaller: these labels are read at arm's length on a phone. */
   .totem-name {
-    font-size: 0.62rem;
-    letter-spacing: 0.1em;
+    font-size: 0.76rem;
+    letter-spacing: 0.02em;
+  }
+
+  .totem-key {
+    bottom: 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  [data-start] {
+    font-size: 1rem;
+  }
+
+  .hint {
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
   }
 }

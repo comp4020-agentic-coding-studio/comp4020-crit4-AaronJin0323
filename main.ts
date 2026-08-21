@@ -1,356 +1,345 @@
-// Pantheon --- seven carved totems, seven gods, seven chords.
+// Hands and eyes. Everything that hears is under src/.
 //
-// Each totem is one diatonic triad of C major, so any combination a player
-// strikes stays in key: that's what "nothing you play is wrong" means here,
-// not just a claim on the page.
-//
-// There is exactly one way to interact: strike the stone. Nothing to adjust,
-// no parameters --- so tone has to come from the playing itself, and it comes
-// from two places:
-//
-//   * WHERE you strike a totem (its vertical position) sets that chord's
-//     loudness, attack, arpeggio speed, and brightness together.
-//   * HEAT --- a value that rises with every strike and cools when you rest.
-//     Play hard and the pantheon wakes: everything opens up and brightens.
-//     Leave it alone and it settles back down. A long-held chord mellows on
-//     its own.
-//
-// Two players therefore never sound the same, and the same player never
-// sounds the same twice.
+// One interaction, three ways in: pointer, touch, keyboard. Press to summon,
+// hold to sustain, move to shape, drag to layer, let go to let it decay.
+// There is nothing to configure --- the only non-playing control on the page
+// is mute, which is a safety valve rather than a parameter.
 
-type ChordId = "C" | "Dm" | "Em" | "F" | "G" | "Am" | "Bdim";
+import { clamp01, FULL_LEVEL, idle, setLevel } from "./src/engine.ts";
+import type { Gesture, GodId } from "./src/gods.ts";
+import { GOD_IDS } from "./src/gods.ts";
+import { describe } from "./src/inscription.ts";
+import { awake, invoke, isAwake, onChange, release, releaseAll, steer } from "./src/pantheon.ts";
 
-// MIDI note numbers for each triad's equal-tempered pitches (A4 = 440 Hz).
-// Computed from a formula below, never approximated.
-const NOTES: Record<ChordId, number[]> = {
-  C: [60, 64, 67],
-  Dm: [62, 65, 69],
-  Em: [64, 67, 71],
-  F: [65, 69, 72],
-  G: [67, 71, 74],
-  Am: [69, 72, 76],
-  Bdim: [71, 74, 77],
-};
-
-function midiToFrequency(midi: number): number {
-  return 440 * 2 ** ((midi - 69) / 12);
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-// Strike position and heat together decide how open a voice sounds, mapped
-// exponentially onto 300-8000 Hz --- pitch perception is logarithmic, so a
-// linear map would spend most of its range in the top octave. Darkest is a
-// soft strike on a cold pantheon (~840 Hz); brightest is a hard strike at
-// full heat (8 kHz).
-function cutoffFor(velocity: number, currentHeat: number): number {
-  const min = 300;
-  const max = 8000;
-  return min * (max / min) ** clamp01(0.18 + velocity * 0.52 + currentHeat * 0.3);
-}
-
-// The keyboard has no notion of *where* a key was struck, so it always plays
-// at this fixed, medium velocity. Pointer and touch are the expressive
-// surface; the keyboard is a consistent alternative, not a degraded one.
-const KEYBOARD_VELOCITY = 0.55;
-
-const totems = Array.from(document.querySelectorAll<HTMLButtonElement>(".totem"));
-const totemByChord = new Map(totems.map((totem) => [totem.dataset.chord as ChordId, totem]));
-const totemByKey = new Map(totems.map((totem) => [totem.dataset.key ?? "", totem]));
-
-let audioContext: AudioContext | undefined;
-let masterGain: GainNode | undefined;
-
-function ensureAudio(): { context: AudioContext; master: GainNode } {
-  if (!audioContext) {
-    audioContext = new AudioContext();
-    masterGain = audioContext.createGain();
-    masterGain.gain.value = 0.9;
-    masterGain.connect(audioContext.destination);
-  }
-  // Browsers start a context suspended until a user gesture resumes it.
-  if (audioContext.state === "suspended") {
-    void audioContext.resume();
-  }
-  return { context: audioContext, master: masterGain! };
-}
-
-// A held chord is a drone (all three notes always audible, quietly) with a
-// rotating spotlight (one note at a time boosted louder). That's the texture:
-// the harmony is always fully present, but it breathes rather than sitting
-// there as a static block chord. Each voice owns its filter, so two chords
-// held at once can have different brightness.
-interface Voice {
-  oscillators: OscillatorNode[];
-  gains: GainNode[];
-  filter: BiquadFilterNode;
-  velocity: number;
-  arpeggioTimer: number;
-}
-
-const activeVoices = new Map<ChordId, Voice>();
-// Which sources ("keyboard", or "pointer-<id>" per touch/mouse pointer) are
-// currently holding each chord, so releasing one finger while a key is also
-// held doesn't cut the chord early.
-const activeSources = new Map<ChordId, Set<string>>();
-
-// --- Heat -------------------------------------------------------------
-// Rises on every strike, cools continuously. Drives both the filter (audible)
-// and the --heat custom property (visible), so the page and the sound wake up
-// together.
-
-const HEAT_PER_STRIKE = 0.14;
-const HEAT_DECAY_PER_SECOND = 0.25;
-
-let heat = 0;
-let heatFrame = 0;
-let lastFrameTime = 0;
-let lastFilterUpdate = 0;
-let lastAppliedHeat = 0;
-
-function retuneVoice(voice: Voice): void {
-  if (!audioContext) return;
-  voice.filter.frequency.setTargetAtTime(
-    cutoffFor(voice.velocity, heat),
-    audioContext.currentTime,
-    0.08,
-  );
-}
-
-function startHeatLoop(): void {
-  if (heatFrame) return;
-  lastFrameTime = performance.now();
-
-  const step = (now: number): void => {
-    heat = Math.max(0, heat - ((now - lastFrameTime) / 1000) * HEAT_DECAY_PER_SECOND);
-    lastFrameTime = now;
-    document.documentElement.style.setProperty("--heat", heat.toFixed(3));
-
-    // Re-glide sustained voices toward the new heat --- but throttled. One
-    // automation event per filter per animation frame is both wasteful and
-    // audible as stepping, so only write when heat has actually moved.
-    if (now - lastFilterUpdate > 60 && Math.abs(heat - lastAppliedHeat) > 0.01) {
-      lastFilterUpdate = now;
-      lastAppliedHeat = heat;
-      for (const voice of activeVoices.values()) retuneVoice(voice);
-    }
-
-    if (heat > 0.001) {
-      heatFrame = requestAnimationFrame(step);
-      return;
-    }
-
-    // Fully cool: land the last update and stop the loop rather than leaving
-    // a timer running for the rest of the session.
-    heat = 0;
-    heatFrame = 0;
-    lastAppliedHeat = 0;
-    document.documentElement.style.setProperty("--heat", "0");
-    for (const voice of activeVoices.values()) retuneVoice(voice);
-  };
-
-  heatFrame = requestAnimationFrame(step);
-}
-
-function pumpHeat(): void {
-  heat = Math.min(1, heat + HEAT_PER_STRIKE);
-  startHeatLoop();
-}
-
-// --- Voices -----------------------------------------------------------
-
-function setTotemActive(id: ChordId, active: boolean, velocity?: number): void {
-  const totem = totemByChord.get(id);
-  if (!totem) return;
-  totem.setAttribute("aria-pressed", String(active));
-  totem.classList.toggle("is-struck", active);
-  if (active && velocity !== undefined) {
-    totem.style.setProperty("--velocity", String(velocity));
-  }
-}
-
-function startChord(id: ChordId, source: string, velocity: number): void {
-  const sources = activeSources.get(id) ?? new Set<string>();
-  activeSources.set(id, sources);
-  if (sources.has(source)) return;
-  sources.add(source);
-  if (activeVoices.has(id)) return; // already sounding from another source
-
-  const { context, master } = ensureAudio();
-  const now = context.currentTime;
-
-  // A harder strike (velocity near 1) is louder, snappier, faster and
-  // brighter; a soft one is quieter, gentler and slower.
-  const droneLevel = 0.05 + velocity * 0.05;
-  const spotlightLevel = 0.14 + velocity * 0.14;
-  const attack = 0.05 - velocity * 0.035;
-  const tickMs = 260 - velocity * 180;
-
-  const filter = context.createBiquadFilter();
-  filter.type = "lowpass";
-  filter.frequency.value = cutoffFor(velocity, heat);
-  filter.connect(master);
-
-  const oscillators: OscillatorNode[] = [];
-  const gains: GainNode[] = [];
-
-  NOTES[id].forEach((midi, i) => {
-    const osc = context.createOscillator();
-    osc.type = "triangle";
-    osc.frequency.value = midiToFrequency(midi);
-    osc.detune.value = (i - 1) * 4; // slight spread across the triad, for warmth
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(droneLevel, now + attack);
-    osc.connect(gain);
-    gain.connect(filter);
-    osc.start();
-    oscillators.push(osc);
-    gains.push(gain);
-  });
-
-  let step = 0;
-  const tick = (): void => {
-    if (!audioContext) return;
-    const t = audioContext.currentTime;
-    const spotlight = step % gains.length;
-    gains.forEach((gain, i) => {
-      gain.gain.cancelScheduledValues(t);
-      gain.gain.setValueAtTime(gain.gain.value, t);
-      gain.gain.linearRampToValueAtTime(i === spotlight ? spotlightLevel : droneLevel, t + 0.04);
-    });
-    step++;
-  };
-  tick(); // light the first note immediately, don't wait a full tick
-  const arpeggioTimer = window.setInterval(tick, tickMs);
-
-  activeVoices.set(id, { oscillators, gains, filter, velocity, arpeggioTimer });
-  setTotemActive(id, true, velocity);
-  pumpHeat();
-}
-
-function stopChord(id: ChordId, source: string): void {
-  const sources = activeSources.get(id);
-  if (!sources?.has(source)) return;
-  sources.delete(source);
-  if (sources.size > 0) return; // still held by another source
-
-  const voice = activeVoices.get(id);
-  if (!voice || !audioContext) return;
-  activeVoices.delete(id);
-  window.clearInterval(voice.arpeggioTimer);
-
-  const now = audioContext.currentTime;
-  const release = 0.15;
-  for (const gain of voice.gains) {
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(gain.gain.value, now);
-    gain.gain.linearRampToValueAtTime(0, now + release);
-  }
-  voice.oscillators.forEach((osc, i) => {
-    osc.stop(now + release + 0.01);
-    osc.addEventListener("ended", () => {
-      osc.disconnect();
-      // All three stop together, so tearing the shared filter down with the
-      // first one to end is safe --- and stops voices leaking nodes.
-      if (i === 0) voice.filter.disconnect();
-    });
-  });
-
-  setTotemActive(id, false);
-}
-
-// --- Input ------------------------------------------------------------
-
-// How hard a totem was struck: vertical position within the stone, bottom =
-// hardest. pointer.pressure is a constant 0.5 for mouse and most
-// touchscreens, so it isn't a usable signal --- position is, and it behaves
-// the same across mouse, trackpad, and touch.
-function velocityFromEvent(event: PointerEvent, totem: HTMLElement): number {
-  const rect = totem.getBoundingClientRect();
-  const fraction = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
-  return 0.25 + clamp01(fraction) * 0.75;
-}
-
-// Pointer (mouse or touch): tracked per pointerId as the *set* of chords that
-// pointer currently has sounding. A plain strike holds one chord. Sweeping
-// across the row adds each newly-entered totem to the set --- a strum builds
-// a ringing cluster rather than swapping one chord for another --- and
-// releasing (anywhere, via `window`, not the button) tears down everything
-// that pointer built up, so a drag off the row never leaves a chord stuck on.
-const pointerChords = new Map<number, Set<ChordId>>();
+const root = document.documentElement;
+const totems = [...document.querySelectorAll<HTMLButtonElement>(".totem")];
+const byGod = new Map<GodId, HTMLButtonElement>();
+const byKey = new Map<string, HTMLButtonElement>();
 
 for (const totem of totems) {
-  const id = totem.dataset.chord as ChordId;
+  const id = totem.dataset.god as GodId;
+  byGod.set(id, totem);
+  const key = totem.dataset.key;
+  if (key) byKey.set(key, totem);
+}
+
+const godOf = (totem: HTMLButtonElement): GodId => totem.dataset.god as GodId;
+
+// --- Gesture -----------------------------------------------------------
+// Position is read against the viewport, not the button, so that dragging
+// from one god to another is one continuous shaping movement rather than
+// seven separate little coordinate systems.
+//
+//   y  bottom -> top    darker/lower -> brighter/higher
+//   x  left -> right    stereo placement
+//   speed               how hard, how rough, how sharp the attack
+
+interface Track {
+  gesture: Gesture;
+  gods: Set<GodId>;
+  lastX: number;
+  lastY: number;
+  lastTime: number;
+  /** Where the last hit test happened, so we don't run one per pixel. */
+  hitX: number;
+  hitY: number;
+}
+
+const tracks = new Map<number, Track>();
+/** How fast the pointer was travelling on the way in. */
+let approach = 0;
+
+/** Fast is about two screen pixels per millisecond. */
+function sampleSpeed(dx: number, dy: number, dt: number): number {
+  return clamp01(Math.hypot(dx, dy) / Math.max(dt, 8) / 2);
+}
+
+/**
+ * Pen and force-sensitive panels report real pressure. Mice and most
+ * touchscreens hard-code 0.5, which carries no information at all --- so we
+ * fall back to how fast the hand was already moving, with a floor so a
+ * deliberate slow press is still audible.
+ */
+function strikeIntensity(event: PointerEvent): number {
+  const pressure = event.pressure;
+  if (event.pointerType === "pen" || (pressure > 0 && Math.abs(pressure - 0.5) > 0.01)) {
+    return clamp01(pressure);
+  }
+  return clamp01(0.3 + approach * 0.7);
+}
+
+function positionX(clientX: number): number {
+  return clamp01(clientX / Math.max(window.innerWidth, 1));
+}
+
+function positionY(clientY: number): number {
+  return clamp01(1 - clientY / Math.max(window.innerHeight, 1));
+}
+
+// --- Visual state ------------------------------------------------------
+// The gods write themselves onto :root as --g-<name>, 0-1. CSS does the rest.
+//
+// How long each god stays audible after release, counting the tail its voice
+// schedules plus what the shared delay gives back. The glow decays to nothing
+// over exactly that window, so the picture is lit for as long as you can hear
+// the sound --- not a 150ms click flash, and not a stone still glowing four
+// seconds after it went quiet.
+
+const AUDIBLE_TAIL_SECONDS: Record<GodId, number> = {
+  zeus: 1.8, // 0.6s fade, then the thunder roll in the delay
+  poseidon: 1.3,
+  hades: 3.6, // 2.6s fade plus the underworld echo
+  demeter: 1.2,
+  apollo: 1,
+  artemis: 1.8, // short plucks, but the arrows keep flying
+  ares: 0.5, // percussion; it is over when it is over
+};
+
+/** Exponential decay reaching the 0.01 cut-off at the end of the tail. */
+const FALL_PER_SECOND = Object.fromEntries(
+  GOD_IDS.map((id) => [id, Math.log(100) / AUDIBLE_TAIL_SECONDS[id]]),
+) as Record<GodId, number>;
+
+const glow = new Map<GodId, number>(GOD_IDS.map((id) => [id, 0]));
+let heat = 0;
+let frameHandle = 0;
+let lastFrame = 0;
+let lastSteer = 0;
+let steerDirty = false;
+
+function frame(now: number): void {
+  const dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+
+  // Standing still, a flick shouldn't leave the sea rough forever.
+  for (const track of tracks.values()) {
+    if (track.gesture.speed > 0.004) {
+      track.gesture.speed *= Math.max(0, 1 - dt * 2.2);
+      steerDirty = true;
+    }
+  }
+
+  // Audio automation runs at ~30Hz, not at the pointer's 120Hz --- seven
+  // voices times a dozen params per move is how you make a filter crackle.
+  if (steerDirty && now - lastSteer > 33) {
+    lastSteer = now;
+    steerDirty = false;
+    for (const track of tracks.values()) {
+      for (const id of track.gods) steer(id, track.gesture);
+    }
+  }
+
+  const active = awake();
+  const target = clamp01(active.length / 4);
+  heat += (target - heat) * Math.min(dt * (target > heat ? 2.2 : 0.9), 1);
+  if (heat < 0.002) heat = 0;
+  root.style.setProperty("--heat", heat.toFixed(3));
+
+  let lit = false;
+  for (const id of GOD_IDS) {
+    const current = glow.get(id) ?? 0;
+    const on = isAwake(id);
+    const rate = on ? 6 : FALL_PER_SECOND[id];
+    const step = Math.min(dt * rate, 1);
+    let next = on ? current + (1 - current) * step : current - current * step;
+    if (next < 0.01) next = on ? next : 0;
+    if (next !== current) {
+      glow.set(id, next);
+      root.style.setProperty(`--g-${id}`, next.toFixed(3));
+    }
+    if (next > 0) lit = true;
+  }
+
+  if (!lit && heat === 0 && tracks.size === 0) {
+    frameHandle = 0; // nothing moving; stop burning frames
+    return;
+  }
+  frameHandle = requestAnimationFrame(frame);
+}
+
+function startFrames(): void {
+  if (frameHandle) return;
+  lastFrame = performance.now();
+  frameHandle = requestAnimationFrame(frame);
+}
+
+// --- Inscription -------------------------------------------------------
+
+const inscription = document.querySelector<HTMLElement>("[data-start]");
+let hasPlayed = false;
+let inscriptionTimer = 0;
+
+onChange((active) => {
+  for (const id of GOD_IDS) {
+    byGod.get(id)?.classList.toggle("is-awake", active.includes(id));
+  }
+  if (active.length > 0) hasPlayed = true;
+  startFrames();
+
+  // Debounced, or a four-god strum fires four screen-reader announcements in
+  // half a second and the region becomes noise.
+  if (inscriptionTimer) window.clearTimeout(inscriptionTimer);
+  inscriptionTimer = window.setTimeout(() => {
+    inscriptionTimer = 0;
+    if (!inscription) return;
+    const text = describe(awake(), hasPlayed);
+    if (inscription.textContent !== text) inscription.textContent = text;
+  }, 700);
+});
+
+// --- Pointer -----------------------------------------------------------
+
+for (const totem of totems) {
   totem.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    const chords = pointerChords.get(event.pointerId) ?? new Set<ChordId>();
-    pointerChords.set(event.pointerId, chords);
-    chords.add(id);
-    startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, totem));
+    if (tracks.has(event.pointerId)) return;
+    const id = godOf(totem);
+    const track: Track = {
+      gesture: {
+        x: positionX(event.clientX),
+        y: positionY(event.clientY),
+        speed: strikeIntensity(event),
+      },
+      gods: new Set([id]),
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastTime: event.timeStamp,
+      hitX: event.clientX,
+      hitY: event.clientY,
+    };
+    tracks.set(event.pointerId, track);
+    invoke(id, `pointer-${event.pointerId}`, track.gesture);
+    startFrames();
   });
 }
 
 window.addEventListener("pointermove", (event) => {
-  const chords = pointerChords.get(event.pointerId);
-  if (!chords) return; // this pointer isn't holding anything
-  const under = document.elementFromPoint(event.clientX, event.clientY);
-  const totem = under instanceof Element ? under.closest<HTMLButtonElement>(".totem") : null;
-  if (!totem) return;
-  const id = totem.dataset.chord as ChordId;
-  if (chords.has(id)) return; // already part of this sweep
-  chords.add(id);
-  startChord(id, `pointer-${event.pointerId}`, velocityFromEvent(event, totem));
-});
+  const track = tracks.get(event.pointerId);
 
-function releasePointer(event: PointerEvent): void {
-  const chords = pointerChords.get(event.pointerId);
-  if (!chords) return;
-  pointerChords.delete(event.pointerId);
-  for (const id of chords) stopChord(id, `pointer-${event.pointerId}`);
-}
-
-window.addEventListener("pointerup", releasePointer);
-window.addEventListener("pointercancel", releasePointer);
-
-// Enter and Space play whichever totem has focus, so arriving by Tab is a way
-// in on its own --- nothing on the page tells you the letters, and a focused
-// button that stays silent would be a dead end. Held, not clicked, to match
-// every other way of playing; the chord is remembered rather than re-read from
-// focus on keyup, so tabbing away mid-hold can't strand a note.
-let focusKeyChord: ChordId | undefined;
-
-// Otherwise keyboard is global, not per-button, so a letter works no matter
-// what has focus. `repeat` is ignored so holding a key doesn't re-attack.
-window.addEventListener("keydown", (event) => {
-  if (event.repeat) return;
-
-  if (event.key === "Enter" || event.key === " ") {
-    const focused = document.activeElement;
-    const totem = focused instanceof Element ? focused.closest<HTMLButtonElement>(".totem") : null;
-    if (!totem || focusKeyChord) return;
-    event.preventDefault(); // Space would scroll, and both would fire a click
-    focusKeyChord = totem.dataset.chord as ChordId;
-    startChord(focusKeyChord, "focus-key", KEYBOARD_VELOCITY);
+  if (!track) {
+    // Still worth watching: this is what tells us how hard the next strike is.
+    approach = approach * 0.85 + sampleSpeed(event.movementX, event.movementY, 16) * 0.15;
     return;
   }
 
-  const totem = totemByKey.get(event.key.toLowerCase());
+  const measured = sampleSpeed(
+    event.clientX - track.lastX,
+    event.clientY - track.lastY,
+    event.timeStamp - track.lastTime,
+  );
+  approach = Math.max(approach * 0.85, measured);
+  track.lastX = event.clientX;
+  track.lastY = event.clientY;
+  track.lastTime = event.timeStamp;
+
+  const gesture = track.gesture;
+  gesture.x = positionX(event.clientX);
+  gesture.y = positionY(event.clientY);
+  // Rises instantly, falls slowly (the frame loop does the falling), so the
+  // sea reacts to a flick and then settles rather than flickering.
+  gesture.speed = Math.max(gesture.speed * 0.8, measured);
+  steerDirty = true;
+
+  // Dragging onto another god layers it in. The hit test is a layout read, so
+  // it runs after a few pixels of movement rather than on every event.
+  if (Math.abs(event.clientX - track.hitX) + Math.abs(event.clientY - track.hitY) < 6) return;
+  track.hitX = event.clientX;
+  track.hitY = event.clientY;
+  const under = document.elementFromPoint(event.clientX, event.clientY);
+  const totem = under?.closest<HTMLButtonElement>(".totem");
   if (!totem) return;
-  startChord(totem.dataset.chord as ChordId, "keyboard", KEYBOARD_VELOCITY);
+  const id = godOf(totem);
+  if (track.gods.has(id)) return;
+  track.gods.add(id);
+  invoke(id, `pointer-${event.pointerId}`, gesture);
+});
+
+function endPointer(event: PointerEvent): void {
+  const track = tracks.get(event.pointerId);
+  if (!track) return;
+  tracks.delete(event.pointerId);
+  for (const id of track.gods) release(id, `pointer-${event.pointerId}`);
+}
+
+window.addEventListener("pointerup", endPointer);
+window.addEventListener("pointercancel", endPointer);
+
+// --- Keyboard ----------------------------------------------------------
+
+/** Keys can't move, so they get a fixed, comfortable place in the field. */
+function keyGesture(totem: HTMLButtonElement): Gesture {
+  const index = Math.max(totems.indexOf(totem), 0);
+  const span = Math.max(totems.length - 1, 1);
+  return { x: index / span, y: 0.58, speed: 0.5 };
+}
+
+let focusHeld: GodId | undefined;
+
+window.addEventListener("keydown", (event) => {
+  if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+
+  // Enter and Space on a focused totem. Without this a keyboard user who
+  // tabs to a stone and presses the obvious key gets silence.
+  if (event.key === "Enter" || event.key === " ") {
+    const totem = document.activeElement?.closest<HTMLButtonElement>(".totem");
+    if (!totem || focusHeld) return;
+    event.preventDefault(); // Space scrolls; both would synthesise a click
+    focusHeld = godOf(totem);
+    invoke(focusHeld, "focus", keyGesture(totem));
+    startFrames();
+    return;
+  }
+
+  const totem = byKey.get(event.key.toLowerCase());
+  if (!totem) return;
+  invoke(godOf(totem), `key-${event.key.toLowerCase()}`, keyGesture(totem));
+  startFrames();
 });
 
 window.addEventListener("keyup", (event) => {
   if (event.key === "Enter" || event.key === " ") {
-    if (!focusKeyChord) return;
-    stopChord(focusKeyChord, "focus-key");
-    focusKeyChord = undefined;
+    if (!focusHeld) return;
+    // Remembered from keydown rather than re-read from activeElement, or
+    // tabbing away mid-hold would strand the note.
+    release(focusHeld, "focus");
+    focusHeld = undefined;
     return;
   }
-
-  const totem = totemByKey.get(event.key.toLowerCase());
+  const totem = byKey.get(event.key.toLowerCase());
   if (!totem) return;
-  stopChord(totem.dataset.chord as ChordId, "keyboard");
+  release(godOf(totem), `key-${event.key.toLowerCase()}`);
+});
+
+// --- Letting go for the player -----------------------------------------
+// A key held while the window loses focus never delivers its keyup, and a
+// hidden tab should not keep seven oscillators running.
+
+function panic(): void {
+  tracks.clear();
+  focusHeld = undefined;
+  releaseAll();
+  startFrames();
+}
+
+window.addEventListener("blur", panic);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "hidden") return;
+  panic();
+  idle();
+});
+
+// --- Mute --------------------------------------------------------------
+
+const mute = document.querySelector<HTMLButtonElement>("[data-mute]");
+let muted = false;
+
+mute?.addEventListener("click", () => {
+  muted = !muted;
+  // A real two-state toggle, so aria-pressed genuinely means something here
+  // in a way it never did on the totems. The label stays "Mute" --- swapping
+  // it to "Unmute" would make the button's name and its pressed state say
+  // two different things.
+  mute.setAttribute("aria-pressed", String(muted));
+  mute.classList.toggle("is-muted", muted);
+  setLevel(muted ? 0 : FULL_LEVEL);
 });

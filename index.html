@@ -6,7 +6,7 @@
     <title>Pantheon</title>
     <meta
       name="description"
-      content="Seven carved totems, seven gods, seven chords. Strike them with mouse, touch, or the A S D F G H J keys — every stone is in key, so nothing you play is wrong."
+      content="Seven carved totems, seven gods. Hold one and its domain becomes a musical force — storm, ocean, depth, growth, sunlight, the hunt, war. Move while you hold to shape it, drag to layer them, and hear what the gods do to each other."
     />
 
     <!--
@@ -21,35 +21,63 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <!--
+      The sky, sea and underworld of the scene. Every layer's strength is a
+      custom property written from main.ts (--g-zeus and friends), and each
+      one falls at the rate its god's sound decays, so the picture holds for
+      exactly as long as you can hear it.
+    -->
+    <div class="aether" aria-hidden="true">
+      <div class="layer sky"></div>
+      <div class="layer sea"></div>
+      <div class="layer deep"></div>
+      <div class="layer bloom"></div>
+      <div class="layer sun"></div>
+      <div class="layer stars"></div>
+      <div class="layer shock"></div>
+    </div>
+
     <header>
       <nav aria-label="Primary">
         <a href="./">Home</a>
       </nav>
+      <!--
+        The only control that isn't a god. It is a safety valve, not a tone
+        parameter --- and unlike the totems it really is a two-state toggle,
+        so aria-pressed belongs here and nowhere else on the page.
+      -->
+      <button type="button" class="mute" data-mute aria-pressed="false">
+        <span class="mute-mark" aria-hidden="true"></span>
+        <span class="mute-text">Mute</span>
+      </button>
     </header>
+
     <main>
       <h1>Pantheon</h1>
       <div class="meander" aria-hidden="true"></div>
-      <!--
-        An invitation, not a manual. Nothing here says which keys to press or
-        that sweeping strums --- the carvings, the key letters and the sound
-        itself are the tutorial, and finding the strum is the reward.
-      -->
-      <p data-start>The pantheon sleeps.</p>
 
       <!--
-        Seven diatonic triads of C major, one per god. The `data-chord` ids are
-        the chord names the audio engine looks up; the face carries the myth.
-        Each glyph is aria-hidden line art --- the accessible name on the
-        button carries the god, the chord, and the key.
+        Opening invitation, then the page's only live region. Once the first
+        god sounds this stops inviting and starts describing what is actually
+        awake --- which is also how a screen-reader user hears the state that
+        the glow carries visually.
+      -->
+      <p data-start aria-live="polite">The pantheon sleeps. Touch a god to invoke them.</p>
+      <p class="hint">Touch, hold and move &middot; Keys A&ndash;J</p>
+
+      <!--
+        Seven gods, seven domains, one pitch system underneath them all.
+        The totems are momentary --- held, not toggled --- so they carry no
+        aria-pressed; held state reaches assistive tech through the live
+        region above and .is-awake carries it visually.
       -->
       <div class="totems" role="group" aria-label="Totems of the pantheon">
         <button
           type="button"
           class="totem"
-          data-chord="C"
+          data-god="zeus"
           data-key="a"
-          aria-pressed="false"
-          aria-label="Zeus — C major, key A"
+          aria-label="Zeus — sky and thunder. Key A."
         >
           <span class="totem-glyph">
             <svg
@@ -72,10 +100,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="Dm"
+          data-god="poseidon"
           data-key="s"
-          aria-pressed="false"
-          aria-label="Poseidon — D minor, key S"
+          aria-label="Poseidon — sea and swell. Key S."
         >
           <span class="totem-glyph">
             <svg
@@ -99,10 +126,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="Em"
+          data-god="hades"
           data-key="d"
-          aria-pressed="false"
-          aria-label="Hades — E minor, key D"
+          aria-label="Hades — the underworld. Key D."
         >
           <span class="totem-glyph">
             <svg
@@ -126,10 +152,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="F"
+          data-god="demeter"
           data-key="f"
-          aria-pressed="false"
-          aria-label="Demeter — F major, key F"
+          aria-label="Demeter — growth and harvest. Key F."
         >
           <span class="totem-glyph">
             <svg
@@ -153,10 +178,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="G"
+          data-god="apollo"
           data-key="g"
-          aria-pressed="false"
-          aria-label="Apollo — G major, key G"
+          aria-label="Apollo — sunlight and the lyre. Key G."
         >
           <span class="totem-glyph">
             <svg
@@ -186,10 +210,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="Am"
+          data-god="artemis"
           data-key="h"
-          aria-pressed="false"
-          aria-label="Artemis — A minor, key H"
+          aria-label="Artemis — the hunt and the moon. Key H."
         >
           <span class="totem-glyph">
             <svg
@@ -213,10 +236,9 @@
         <button
           type="button"
           class="totem"
-          data-chord="Bdim"
+          data-god="ares"
           data-key="j"
-          aria-pressed="false"
-          aria-label="Ares — B diminished, key J"
+          aria-label="Ares — war and the drum. Key J."
         >
           <span class="totem-glyph">
             <svg

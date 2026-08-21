@@ -16,5 +16,7 @@
     "useDefineForClassFields": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["*.ts", "spec", "scripts"]
+  // "*.ts" is root-only --- without "src" listed, the audio engine would build
+  // fine and never be typechecked.
+  "include": ["*.ts", "src", "spec", "scripts"]
 }
